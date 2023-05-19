@@ -32,10 +32,11 @@ investPeriod = 6
 
 # Load the stock weekly prices
 adjClose = pd.read_csv(assetData, index_col=0)
-
+adjClose.index = pd.to_datetime(adjClose.index)
 
 # Load the factors weekly returns
 factorRet = pd.read_csv(factorData, index_col=0)
+factorRet.index = pd.to_datetime(factorRet.index)
 riskFree = factorRet['RF']
 factorRet = factorRet.drop(columns='RF')
 
@@ -86,67 +87,68 @@ x0 = np.empty(shape=(n, NoPeriods))
 
 
 # Preallocate space for the portfolio per period value and turnover
-currentVal = np.empty(shape=(n, 1))
-turnover   = np.empty(shape=(n, 1))
+currentVal = np.empty(shape=(n))
+turnover   = np.empty(shape=(n))
+portfValue = np.empty(shape=(NoPeriods*investPeriod))
 
 # Initiate counter for the number of observations per investment period
 toDay = 0
 
 # Meaure runtime: start the clock
 tic = time.perf_counter()
-'''
-for t = 1 : NoPeriods
+
+for t in range(NoPeriods):
   
     # Subset the returns and factor returns corresponding to the current
     # calibration period.
-    periodReturns = table2array( returns( dates <= calEnd, :) );
-    periodFactRet = table2array( factorRet( dates <= calEnd, :) );
-    currentPrices = table2array( adjClose( ( calEnd - calmonths(1) - days(5) ) <= dates & dates <= calEnd, :) )';
+    periodReturns = returns[returns.index <= calEnd]
+    periodFactRet = factorRet[factorRet.index <= calEnd]
+
+    priceStart = calEnd - np.timedelta64(1,"M") - np.timedelta64(5,"D")
+    currentPrices = adjClose[(adjClose.index >= priceStart) & (adjClose.index <= calEnd)]
     
     # Subset the prices corresponding to the current out-of-sample test 
     # period.
-    periodPrices = table2array( adjClose( testStart <= dates & dates <= testEnd,:) );
-    
+    #periodPrices = table2array( adjClose( testStart <= dates & dates <= testEnd,:) );
+    periodPrices = adjClose[(testStart <= dates) & (dates <= testEnd)]
+
     # Set the initial value of the portfolio or update the portfolio value
-    if t == 1
-        currentVal(t) = initialVal;
-    else    
-        currentVal(t) = currentPrices' * NoShares;
-        
+    if t == 0:
+        currentVal[t] = initialVal
+    else:    
+        currentVal[t] = (currentPrices @ NoShares.T).values
         # Store the current asset weights (before optimization takes place)
-        x0(:,t) = (currentPrices .* NoShares) ./ currentVal(t);
-    end
-    
+        x0[:,t] = (currentPrices * NoShares) / currentVal[t]
+
     #----------------------------------------------------------------------
     # Portfolio optimization
     # You must write code your own algorithmic trading function 
     #----------------------------------------------------------------------
-    x(:,t) = Project2_Function(periodReturns, periodFactRet, x0(:,t));
+    #x(:,t) = Project2_Function(periodReturns, periodFactRet, x0(:,t));
 
     # Calculate the turnover rate 
-    if t > 1
-        turnover(t) = sum( abs( x(:,t) - x0(:,t) ) );
-    end
+    if t > 1:
+        turnover[t] = sum( abs( x[:,t] - x0[:,t] ) )
         
     # Number of shares your portfolio holds per stock
-    NoShares = x(:,t) .* currentVal(t) ./ currentPrices;
-    
+    NoShares = x[:,t] * currentVal[t] / currentPrices
+
     # Update counter for the number of observations per investment period
-    fromDay = toDay + 1;
-    toDay   = toDay + size(periodPrices,1);
+    fromDay = toDay + 1
+    toDay   = toDay + len(periodPrices)
 
     # Weekly portfolio value during the out-of-sample window
-    portfValue(fromDay:toDay) = periodPrices * NoShares;
+    portfValue[fromDay:toDay] = periodPrices * NoShares
 
-    # Update your calibration and out-of-sample test periods
-    testStart = testStart + calmonths(investPeriod);
-    testEnd   = testStart + calmonths(investPeriod) - days(1);
-    calEnd    = testStart - days(1);
+    # # Update your calibration and out-of-sample test periods
+    testStart = testStart + np.timedelta64(investPeriod,"M")
+    testEnd   = testStart + np.timedelta64(investPeriod,"M") - np.timedelta64(1,"D")
+    calEnd    = testStart - np.timedelta64(1,"D")
 
-end
+
 
 # Transpose the portfValue into a column vector
-portfValue = portfValue';
+portfValue = portfValue.T
 
 # Measure runtime: stop the clock
 toc = time.perf_counter()
@@ -154,7 +156,7 @@ toc = time.perf_counter()
 ###########################################################################
 ## 3. Results
 ###########################################################################
-
+'''
 #--------------------------------------------------------------------------
 # 3.1 Calculate the portfolio average return, standard deviation, Sharpe
 # ratio and average turnover.
